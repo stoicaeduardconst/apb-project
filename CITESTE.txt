@@ -1,0 +1,5 @@
+﻿Instrumente pentru proiectele APB
+bpa_runner.py: creează o rulare pe hub, pornește soluția pe ea și afișează raportul (Python 3.10+).
+Cum se folosește: documentul „01 Ghid student”, secțiunea „Cum lucrați cu hub-ul”.
+openapi/A-invoices.json, B-onboarding.json, C-procurement.json: API-ul proiectelor (OpenAPI 3.1).
+openapi/*.openapi-3.0.json: același API în OpenAPI 3.0, doar pentru uneltele care nu citesc 3.1.

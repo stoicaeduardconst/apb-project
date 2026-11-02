@@ -28,6 +28,12 @@ interface ProcurementConfig {
   horizon_days: number;
   price_increase_review_pct: string;
   max_lead_time_days: Record<"A" | "B" | "C", number>;
+  selection_method?: "WEIGHTED_SCORE" | "LOWEST_COST";
+  selection_weights?: {
+    cost: string;
+    lead_time: string;
+    reliability: string;
+  };
   notification_recipients: {
     PROCUREMENT_MANAGER: string;
     WAREHOUSE_MANAGER: string;

@@ -78,6 +78,12 @@ export interface ProcurementConfig {
   horizon_days: number;
   price_increase_review_pct: string;
   max_lead_time_days: Record<"A" | "B" | "C", number>;
+  selection_method?: "WEIGHTED_SCORE" | "LOWEST_COST";
+  selection_weights?: {
+    cost: string;
+    lead_time: string;
+    reliability: string;
+  };
 }
 
 export interface Decision {
@@ -226,7 +232,49 @@ export function decideItem(
     };
   }
 
-  supplierOffers.sort(compareOffers);
+  const selectionMethod = context.config.selection_method ?? "LOWEST_COST";
+  if (selectionMethod === "WEIGHTED_SCORE") {
+    const weights = context.config.selection_weights;
+    if (!weights) {
+      throw new Error("WEIGHTED_SCORE requires selection_weights");
+    }
+
+    let minCost = supplierOffers[0].totalCostRon;
+    let maxCost = supplierOffers[0].totalCostRon;
+    let minLeadTime = supplierOffers[0].offer.lead_time_days;
+    let maxLeadTime = supplierOffers[0].offer.lead_time_days;
+    for (const evaluated of supplierOffers.slice(1)) {
+      minCost = Decimal.min(minCost, evaluated.totalCostRon);
+      maxCost = Decimal.max(maxCost, evaluated.totalCostRon);
+      minLeadTime = Math.min(minLeadTime, evaluated.offer.lead_time_days);
+      maxLeadTime = Math.max(maxLeadTime, evaluated.offer.lead_time_days);
+    }
+
+    for (const evaluated of supplierOffers) {
+      const normalizedCost = normalize(
+        evaluated.totalCostRon,
+        minCost,
+        maxCost,
+      );
+      const normalizedLeadTime = normalize(
+        new Decimal(evaluated.offer.lead_time_days),
+        new Decimal(minLeadTime),
+        new Decimal(maxLeadTime),
+      );
+      evaluated.weightedScore = new Decimal(weights.cost)
+        .times(normalizedCost)
+        .plus(new Decimal(weights.lead_time).times(normalizedLeadTime))
+        .plus(
+          new Decimal(weights.reliability).times(
+            new Decimal("1").minus(evaluated.supplier.on_time_rate),
+          ),
+        );
+    }
+  }
+
+  supplierOffers.sort((left, right) =>
+    compareOffers(left, right, selectionMethod === "WEIGHTED_SCORE"),
+  );
   const selected = supplierOffers[0];
   const decision: Decision = {
     sku: item.sku,
@@ -298,8 +346,27 @@ function findRate(rates: FxRate[], businessDate: string): Decimal {
   return new Decimal(latest.rate_ron);
 }
 
-function compareOffers(left: EvaluatedOffer, right: EvaluatedOffer): number {
+function normalize(
+  value: Decimal,
+  minimum: Decimal,
+  maximum: Decimal,
+): Decimal {
+  if (minimum.comparedTo(maximum) === 0) return new Decimal("0");
+  return value
+    .minus(minimum)
+    .dividedBy(maximum.minus(minimum))
+    .toDecimalPlaces(6, Decimal.ROUND_HALF_UP);
+}
+
+function compareOffers(
+  left: EvaluatedOffer,
+  right: EvaluatedOffer,
+  useWeightedScore: boolean,
+): number {
   return (
+    (useWeightedScore
+      ? left.weightedScore!.comparedTo(right.weightedScore!)
+      : 0) ||
     left.totalCostRon.comparedTo(right.totalCostRon) ||
     left.offer.lead_time_days - right.offer.lead_time_days ||
     new Decimal(right.supplier.on_time_rate).comparedTo(
@@ -316,6 +383,7 @@ interface EvaluatedOffer {
   unitPrice: string;
   unitPriceRon: Decimal;
   totalCostRon: Decimal;
+  weightedScore?: Decimal;
 }
 
 function addDays(date: string, days: number): string {
